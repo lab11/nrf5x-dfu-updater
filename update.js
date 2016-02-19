@@ -7,7 +7,7 @@ var binary = require('./binary.js')
 
 var DFU_SERVICE     = '000015301212efde1523785feabcd123' 
 var DFU_CTRLPT_CHAR   = '000015311212efde1523785feabcd123' 
-var DFU_PACKET_CHAR = '000015321212efde1523785feabcd123' 
+var DFU_PKT_CHAR = '000015321212efde1523785feabcd123' 
 var ATT_MTU = 23;
 
 if (!argv.f || !argv.b) {
@@ -30,6 +30,8 @@ function Updater(mac, fname) {
   this.targetDevice = null;
   this.numPackets = null;
   this.initPkt = null;
+  this.ctrlptChar = null;
+  this.pktChar = null;
 
   async.series([
     // read firmware hex file and prepare related parameters
@@ -50,8 +52,8 @@ function Updater(mac, fname) {
         } else {
           noble.stopScanning();
         }
+        callback(null, 2);
       });
-      callback(null, 2);
     },
     function(callback) {
       // when we discover devices
@@ -65,12 +67,95 @@ function Updater(mac, fname) {
   
   // when a scan discovers a device, check if its MAC is what was supplied 
   function discoverDevice(peripheral) {
-    console.log('discovered device: ' + peripheral.uuid.match(/../g).join(':'));
-    if (peripheral.uuid == self.targetMAC) {
+    console.log('discovered device: ' + peripheralToString(peripheral));
+    if (peripheral.id == self.targetMAC) {
       self.targetDevice = peripheral;
-      console.log('found requested peripheral ' + self.targetMAC.match(/../g).join(':')); 
-      // start update!
+      console.log('found requested peripheral: ' + peripheralToString(peripheral)); 
+      dfuStart();
     }
+  }
+
+  function dfuStart() {
+    async.series([
+    // Connect to target
+    function(callback) {
+      self.targetDevice.connect(function(err) {
+        console.log('connected to ' + peripheralToString(self.targetDevice));
+        callback(err, 1);
+      });
+    },
+    // Get DFU Service
+    function(callback) {
+      self.targetDevice.discoverServices([DFU_SERVICE], function(err, services) {
+        self.dfuServ = services[0];
+        callback(err, 2);
+      });
+    },
+    // Get DFU Characteristics
+    function(callback) {
+      self.dfuServ.discoverCharacteristics([DFU_CTRLPT_CHAR, DFU_PKT_CHAR],
+        function (err, chars)
+      {
+        self.ctrlptChar = chars[0];
+        self.pktChar = chars[1];
+        callback(err, 3);
+      });
+    },
+    // Start DFU (write 0x01 to DFU Control Point)
+    function(callback) {
+      self.ctrlptChar.write(Buffer([0x01]), false, function(err) {
+        callback(err, 4); 
+      });
+    },
+    // Send image size
+    function(callback) {
+      var sizeBuf = new Buffer(16);
+      sizeBuf.fill(0);
+      // TODO allow softdevice and bootloader, maybe do this when fileBuffer filled
+      sizeBuf[12] = binary.loUint16(binary.loUint32(self.fileBuffer.length));
+      sizeBuf[13] = binary.hiUint16(binary.loUint32(self.fileBuffer.length));
+      sizeBuf[14] = binary.loUint16(binary.hiUint32(self.fileBuffer.length));
+      sizeBuf[15] = binary.hiUint16(binary.hiUint32(self.fileBuffer.length));
+      
+      self.pktChar.write(sizeBuf, false, function(err) {
+        callback(err, 5);
+      });
+    },
+    // Initialize DFU Parameters (write 0x02 to DFU Control Point)
+    function(callback) {
+      self.ctrlptChar.write(Buffer([0x02]), false, function(err) {
+        callback(err, 6); 
+      });
+    },
+    // Send Init Packet
+    function(callback) {
+      self.pktChar.write(self.initPacket, false, function(err) {
+        callback(err, 7);
+      });
+    },
+    // Send FW Image (write 0x03 to DFU Control Point)
+    function(callback) {
+      self.ctrlptChar.write(Buffer([0x03]), false, function(err) {
+        callback(err, 8);
+      });
+    }//,
+    //// Send FW Image packets
+    //function(callback) {
+    //  var i = 0;
+    //  async.whilst(function(){
+    //    return i < self.numPackets;
+    //  },
+    //  function(callback) {
+    //    self.pktChar.write(self.fileBuffer.slice(i, i+(ATT_MTU-3)), false, function(err) {
+    //      
+    //    });
+    //  }
+    //  callback(err, 9);
+    //}
+    ],
+    function(err, results) {
+      if (err) throw err;
+    }); 
   }
   
   function initPacket(data) {
@@ -116,6 +201,11 @@ function Updater(mac, fname) {
     
     return crc;
   } 
+}
+
+function peripheralToString(peripheral) {
+  return peripheral.id.match(/../g).join(':') + ' '
+    + peripheral.advertisement.localName;
 }
 
 function printHelp() {
