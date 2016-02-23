@@ -75,6 +75,99 @@ function Updater(mac, fname) {
     }
   }
 
+  function ctrlNotify(data, isNotify) {
+    if(data.length !== 3) {
+      console.log("Bad length from target: " + data.length);
+      return;
+    }
+    if(data[0] !== 16) {
+      console.log("Bad opcode from target: 0x" + data[0].toString(16));
+      return;
+    }
+    if(data[2] !== 1) {
+      console.log("Bad respvalue from target: 0x" + data[2].toString(16));
+      return;
+    }
+    // Got a good response, now finish DFU process
+    switch(data[1]) {
+      case 1:
+        async.series([
+          // Initialize DFU Parameters (write 0x02 to DFU Control Point)
+          function(callback) {
+            self.ctrlptChar.write(Buffer([0x02, 0x00]), false, function(err) {
+              console.log('Init DFU Parameters');
+              callback(err, 1); 
+            });
+          },
+          // Send Init Packet
+          function(callback) {
+            self.pktChar.write(self.initPkt, false, function(err) {
+              console.log('Sent DFU Parameters');
+              callback(err, 1);
+            });
+          },
+          // Initialize DFU Parameters (write 0x02 to DFU Control Point)
+          function(callback) {
+            self.ctrlptChar.write(Buffer([0x02, 0x01]), false, function(err) {
+              console.log('Finish DFU Parameters');
+              callback(err, 1); 
+            });
+          }],
+          function(err, results) {
+            if (err) throw err;
+      }); 
+      break;
+    case 2:
+      // Send FW Image (write 0x03 to DFU Control Point)
+      async.series([
+      function(callback) {
+        self.ctrlptChar.write(Buffer([0x03]), false, function(err) {
+          callback(err, 1);
+        });
+      },
+      // Send FW Image packets
+      function(callback0) {
+        var i = 0;
+        async.whilst(
+          function(){
+            return i < self.fileBuffer.length;
+          },
+          function(callback1) {
+            var end = i+(ATT_MTU-3);
+            if (end > self.fileBuffer.length) end = self.fileBuffer.length; 
+            self.pktChar.write(self.fileBuffer.slice(i, end), false, function(err) {
+              if (i % 1000 == 0) {
+                console.log('sent packet ' + Math.floor(i/(ATT_MTU-3)) + ' i = ' + i.toString(16))
+              }
+              i = end;
+              callback1(err, i)
+            });
+          },
+          function (err, i) {
+            callback0(err, i);
+          });
+      }],
+      function(err, results) {
+        if (err) throw err;
+      });
+      break;
+    case 3:
+      // Validate FW image 
+      self.ctrlptChar.write(Buffer([0x04]), false, function(err) {
+        console.log('Validate image');
+      });
+      break; 
+    case 4:
+      // Activate Image and reset 
+      self.ctrlptChar.write(Buffer([0x05]), false, function(err) {
+        console.log('Activate image');
+      });
+      break; 
+    default:
+      console.log('got unexpected reqopcode ' + data[1]);
+    }
+  }
+
   function dfuStart() {
     async.series([
     // Connect to target
@@ -88,71 +181,54 @@ function Updater(mac, fname) {
     function(callback) {
       self.targetDevice.discoverServices([DFU_SERVICE], function(err, services) {
         self.dfuServ = services[0];
-        callback(err, 2);
+        callback(err, 1);
       });
     },
-    // Get DFU Characteristics
+    // Get DFU ctrl Characteristic
     function(callback) {
-      self.dfuServ.discoverCharacteristics([DFU_CTRLPT_CHAR, DFU_PKT_CHAR],
+      self.dfuServ.discoverCharacteristics([DFU_CTRLPT_CHAR],
         function (err, chars)
       {
         self.ctrlptChar = chars[0];
-        self.pktChar = chars[1];
-        callback(err, 3);
+        self.ctrlptChar.notify(true);
+        self.ctrlptChar.on('data', ctrlNotify); 
+        callback(err, 1);
+      });
+    },
+    // Get DFU pkt Characteristic
+    function(callback) {
+      self.dfuServ.discoverCharacteristics([DFU_PKT_CHAR],
+        function (err, chars)
+      {
+        self.pktChar = chars[0];
+        //self.pktChar.notify(true);
+        //self.pktChar.on('data', pktNotify); 
+        callback(err, 1);
       });
     },
     // Start DFU (write 0x01 to DFU Control Point)
     function(callback) {
-      self.ctrlptChar.write(Buffer([0x01]), false, function(err) {
-        callback(err, 4); 
+      // TODO 0x04 should be optional 
+      self.ctrlptChar.write(new Buffer([0x01, 0x04]), false, function(err) {
+        console.log('Starting DFU');
+        callback(err, 1);
       });
     },
     // Send image size
     function(callback) {
-      var sizeBuf = new Buffer(16);
+      var sizeBuf = new Buffer(12);
       sizeBuf.fill(0);
       // TODO allow softdevice and bootloader, maybe do this when fileBuffer filled
-      sizeBuf[12] = binary.loUint16(binary.loUint32(self.fileBuffer.length));
-      sizeBuf[13] = binary.hiUint16(binary.loUint32(self.fileBuffer.length));
-      sizeBuf[14] = binary.loUint16(binary.hiUint32(self.fileBuffer.length));
-      sizeBuf[15] = binary.hiUint16(binary.hiUint32(self.fileBuffer.length));
+      sizeBuf[8] = binary.loUint16(binary.loUint32(self.fileBuffer.length));
+      sizeBuf[9] = binary.hiUint16(binary.loUint32(self.fileBuffer.length));
+      sizeBuf[10] = binary.loUint16(binary.hiUint32(self.fileBuffer.length));
+      sizeBuf[11] = binary.hiUint16(binary.hiUint32(self.fileBuffer.length));
       
       self.pktChar.write(sizeBuf, false, function(err) {
+        console.log('Send img size');
         callback(err, 5);
       });
-    },
-    // Initialize DFU Parameters (write 0x02 to DFU Control Point)
-    function(callback) {
-      self.ctrlptChar.write(Buffer([0x02]), false, function(err) {
-        callback(err, 6); 
-      });
-    },
-    // Send Init Packet
-    function(callback) {
-      self.pktChar.write(self.initPacket, false, function(err) {
-        callback(err, 7);
-      });
-    },
-    // Send FW Image (write 0x03 to DFU Control Point)
-    function(callback) {
-      self.ctrlptChar.write(Buffer([0x03]), false, function(err) {
-        callback(err, 8);
-      });
-    }//,
-    //// Send FW Image packets
-    //function(callback) {
-    //  var i = 0;
-    //  async.whilst(function(){
-    //    return i < self.numPackets;
-    //  },
-    //  function(callback) {
-    //    self.pktChar.write(self.fileBuffer.slice(i, i+(ATT_MTU-3)), false, function(err) {
-    //      
-    //    });
-    //  }
-    //  callback(err, 9);
-    //}
-    ],
+    }],
     function(err, results) {
       if (err) throw err;
     }); 
@@ -161,6 +237,7 @@ function Updater(mac, fname) {
   function initPacket(data) {
     // calculate CRC:
     var crc = crc16(data); 
+    console.log('image size ' + self.fileBuffer.length);
     console.log('calculated crc of firmware: 0x' + crc.toString(16)); 
     var packet = new Buffer(14);
     
@@ -192,14 +269,14 @@ function Updater(mac, fname) {
   function crc16(data, start) {
     var crc = start || 0xFFFF;
     for(var i = 0; i < data.length; i++) {
-      crc = ((crc >> 8) & 0xFF | (crc << 8)) & 0xFFFF;
+      crc =  (crc >> 8) & 0xFF | (crc << 8);
       crc ^= data[i];
-      crc ^= ((crc & 0xFF) >> 4) & 0xFFFF;
-      crc ^= ((crc << 8) << 4) & 0xFFFF;
-      crc ^= (((crc & 0xFF) << 4) << 1) & 0xFFFF;
+      crc ^= (crc & 0xFF) >> 4;
+      crc ^= (crc << 8) << 4;
+      crc ^= ((crc & 0xFF) << 4) << 1;
     }
     
-    return crc;
+    return crc & 0xFFFF;
   } 
 }
 
