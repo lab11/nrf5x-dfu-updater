@@ -1,7 +1,6 @@
 var noble = require('noble');
 var argv = require('minimist')(process.argv.slice(2));
 var fs = require('fs');
-var intel_hex = require('intel-hex');
 var async = require('async');
 var binary = require('./binary.js')
 
@@ -28,17 +27,15 @@ function Updater(mac, fname) {
   this.fileBuffer = null;
   this.targetMAC = mac;
   this.targetDevice = null;
-  this.numPackets = null;
   this.initPkt = null;
   this.ctrlptChar = null;
   this.pktChar = null;
 
   async.series([
-    // read firmware hex file and prepare related parameters
+    // read firmware bin file and prepare related parameters
     function(callback) {
       fs.readFile(fname, function(err, data) {
-        self.fileBuffer = intel_hex.parse(data).data;
-        self.numPackets = self.fileBuffer.length/(ATT_MTU-3);
+        self.fileBuffer = data;
         self.initPkt = initPacket(self.fileBuffer); 
         callback(err, data);
       });
@@ -69,8 +66,12 @@ function Updater(mac, fname) {
   function discoverDevice(peripheral) {
     console.log('discovered device: ' + peripheralToString(peripheral));
     if (peripheral.id == self.targetMAC) {
-      self.targetDevice = peripheral;
       console.log('found requested peripheral: ' + peripheralToString(peripheral)); 
+      self.targetDevice = peripheral;
+      self.targetDevice.once('disconnect', function() {
+        console.log('disconnected from ' + peripheralToString(peripheral));
+        process.exit(); 
+      });
       dfuStart();
     }
   }
@@ -165,6 +166,7 @@ function Updater(mac, fname) {
       break; 
     default:
       console.log('got unexpected reqopcode ' + data[1]);
+      process.exit();
     }
   }
 
