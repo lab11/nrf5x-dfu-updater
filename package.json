@@ -1,0 +1,27 @@
+{
+  "name": "nrf51x-dfu-updater",
+  "version": "1.0.0",
+  "description": "Nodejs nrf51x BLE DFU updater",
+  "main": "updater.js",
+  "dependencies": {
+    "async": "^1.5.2",
+    "intel-hex": "^0.1.1",
+    "minimist": "^1.2.0",
+    "noble": "^1.3.0",
+    "progress": "^1.1.8"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lab11/nrf51x-dfu-updater.git"
+  },
+  "author": "Neal Jackson",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/lab11/nrf51x-dfu-updater/issues"
+  },
+  "homepage": "https://github.com/lab11/nrf51x-dfu-updater#readme"
+}
