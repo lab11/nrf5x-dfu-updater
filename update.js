@@ -2,6 +2,7 @@ var noble = require('noble');
 var argv = require('minimist')(process.argv.slice(2));
 var fs = require('fs');
 var async = require('async');
+var progress = require('progress');
 var binary = require('./binary.js')
 
 var DFU_SERVICE     = '000015301212efde1523785feabcd123' 
@@ -30,6 +31,7 @@ function Updater(mac, fname) {
   this.initPkt = null;
   this.ctrlptChar = null;
   this.pktChar = null;
+  this.progressBar = null;
 
   async.series([
     // read firmware bin file and prepare related parameters
@@ -128,6 +130,12 @@ function Updater(mac, fname) {
       },
       // Send FW Image packets
       function(callback0) {
+        self.progressBar = new progress('downloading [:bar] :percent :etas', {
+          complete: '=',
+          incomplete: ' ',
+          width: 40,
+          total: self.fileBuffer.length/(ATT_MTU-3)
+        });
         var i = 0;
         async.whilst(
           function(){
@@ -137,8 +145,8 @@ function Updater(mac, fname) {
             var end = i+(ATT_MTU-3);
             if (end > self.fileBuffer.length) end = self.fileBuffer.length; 
             self.pktChar.write(self.fileBuffer.slice(i, end), false, function(err) {
-              if (i % 1000 == 0) {
-                console.log('sent packet ' + Math.floor(i/(ATT_MTU-3)) + ' i = ' + i.toString(16))
+              if (i/(ATT_MTU-3) % 10 == 0) {
+                self.progressBar.tick(10);
               }
               i = end;
               callback1(err, i)
