@@ -228,12 +228,13 @@ function Updater(mac, fname) {
     function(callback) {
       // TODO 0x04 should be optional 
       self.ctrlptChar.write(new Buffer([0x01, 0x04]), false, function(err) {
-        console.log("Starting DFU");
+        if (self.targetIsApp) console.log("Resetting Target to Bootloader");
+        else console.log("Starting DFU");
         callback(err, 1);
       });
     },
     // Send image size
-    function(callback, results) {
+    function(callback) {
       if (self.targetIsApp) return callback();
       var sizeBuf = new Buffer(12);
       sizeBuf.fill(0);
