@@ -29,6 +29,7 @@ function Updater(mac, fname) {
   this.targetMAC = mac;
   this.targetDevice = null;
   this.initPkt = null;
+  this.targetIsApp = 0;
   this.ctrlptChar = null;
   this.pktChar = null;
   this.progressBar = null;
@@ -47,7 +48,7 @@ function Updater(mac, fname) {
       noble.on('stateChange', function(state) {
         if (state === 'poweredOn') {
           console.log('starting scan...');
-          noble.startScanning([DFU_SERVICE], false);
+          noble.startScanning([], true);
         } else {
           noble.stopScanning();
         }
@@ -66,13 +67,15 @@ function Updater(mac, fname) {
   
   // when a scan discovers a device, check if its MAC is what was supplied 
   function discoverDevice(peripheral) {
-    console.log('discovered device: ' + peripheralToString(peripheral));
+    //console.log('discovered device: ' + peripheralToString(peripheral));
     if (peripheral.id == self.targetMAC) {
+      noble.stopScanning();
       console.log('found requested peripheral: ' + peripheralToString(peripheral)); 
       self.targetDevice = peripheral;
       self.targetDevice.once('disconnect', function() {
         console.log('disconnected from ' + peripheralToString(peripheral));
-        process.exit(); 
+        if (!self.targetIsApp) process.exit(); 
+        else noble.startScanning([], true);
       });
       dfuStart();
     }
@@ -210,22 +213,28 @@ function Updater(mac, fname) {
       self.dfuServ.discoverCharacteristics([DFU_PKT_CHAR],
         function (err, chars)
       {
-        self.pktChar = chars[0];
-        //self.pktChar.notify(true);
-        //self.pktChar.on('data', pktNotify); 
-        callback(err, 1);
+        if (chars.length == 0) {
+          // going from app to bootloader
+          self.targetIsApp = 1;
+          callback(err, 1);
+        } else {
+          self.pktChar = chars[0];
+          self.targetIsApp = 0;
+          callback(err, 0);
+        }
       });
     },
     // Start DFU (write 0x01 to DFU Control Point)
     function(callback) {
       // TODO 0x04 should be optional 
       self.ctrlptChar.write(new Buffer([0x01, 0x04]), false, function(err) {
-        console.log('Starting DFU');
+        console.log("Starting DFU");
         callback(err, 1);
       });
     },
     // Send image size
-    function(callback) {
+    function(callback, results) {
+      if (self.targetIsApp) return callback();
       var sizeBuf = new Buffer(12);
       sizeBuf.fill(0);
       // TODO allow softdevice and bootloader, maybe do this when fileBuffer filled
