@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 var noble    = require('noble');
 var argv     = require('minimist')(process.argv.slice(2));
 var fs       = require('fs');
