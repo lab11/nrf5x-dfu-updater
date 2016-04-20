@@ -5,18 +5,15 @@ function loUint16(x) {
   // mask as byte
   return x & BYTE_MASK;
 }
-function hiUint16(x)
-{
+function hiUint16(x) {
   // right shift one byte, mask as byte
   return (x >> 8) & BYTE_MASK;
 }
-function loUint32(x)
-{
+function loUint32(x) {
   // mask as byte
   return x & SHORT_MASK;
 }
-function hiUint32(x)
-{
+function hiUint32(x) {
   // right shift two byte, mask as short
   return (x >> 16) & SHORT_MASK;
 }

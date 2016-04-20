@@ -10,6 +10,8 @@ var DFU_CTRLPT_CHAR = '000015311212efde1523785feabcd123';
 var DFU_PKT_CHAR    = '000015321212efde1523785feabcd123';
 var ATT_MTU         = 23;
 
+// Read in arguments. We need a new binary to upload and
+// a device address to upload it to.
 if (!argv.f || !argv.b) {
   printHelp();
 }
@@ -19,7 +21,8 @@ if (mac.length != 12) {
   printHelp();
 }
 
-updater = new Updater(mac, argv.f);
+// Updater handles the actual upload
+var updater = new Updater(mac, argv.f);
 
 function Updater(mac, fname) {
 
