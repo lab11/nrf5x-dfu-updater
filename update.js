@@ -306,7 +306,7 @@ function peripheralToString(peripheral) {
 }
 
 function printHelp() {
-  console.log('-b provides device address in the form XX:XX:XX:XX:XX:XX:XX');
+  console.log('-b provides device address in the form XX:XX:XX:XX:XX:XX');
   console.log('-f provides a required filename for firmware *.bin\n');
   process.exit();
 };
