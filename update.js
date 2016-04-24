@@ -1,15 +1,19 @@
-var noble = require('noble');
-var argv = require('minimist')(process.argv.slice(2));
-var fs = require('fs');
-var async = require('async');
+#!/usr/bin/env node
+
+var noble    = require('noble');
+var argv     = require('minimist')(process.argv.slice(2));
+var fs       = require('fs');
+var async    = require('async');
 var progress = require('progress');
-var binary = require('./binary.js')
+var binary   = require('./binary.js')
 
-var DFU_SERVICE     = '000015301212efde1523785feabcd123' 
-var DFU_CTRLPT_CHAR   = '000015311212efde1523785feabcd123' 
-var DFU_PKT_CHAR = '000015321212efde1523785feabcd123' 
-var ATT_MTU = 23;
+var DFU_SERVICE     = '000015301212efde1523785feabcd123';
+var DFU_CTRLPT_CHAR = '000015311212efde1523785feabcd123';
+var DFU_PKT_CHAR    = '000015321212efde1523785feabcd123';
+var ATT_MTU         = 23;
 
+// Read in arguments. We need a new binary to upload and
+// a device address to upload it to.
 if (!argv.f || !argv.b) {
   printHelp();
 }
@@ -19,12 +23,13 @@ if (mac.length != 12) {
   printHelp();
 }
 
-updater = new Updater(mac, argv.f);
+// Updater handles the actual upload
+var updater = new Updater(mac, argv.f);
 
 function Updater(mac, fname) {
 
   var self = this;
-  
+
   this.fileBuffer = null;
   this.targetMAC = mac;
   this.targetDevice = null;
@@ -39,7 +44,7 @@ function Updater(mac, fname) {
     function(callback) {
       fs.readFile(fname, function(err, data) {
         self.fileBuffer = data;
-        self.initPkt = initPacket(self.fileBuffer); 
+        self.initPkt = initPacket(self.fileBuffer);
         callback(err, data);
       });
     },
@@ -64,17 +69,17 @@ function Updater(mac, fname) {
   function(err, results) {
     if (err) throw err;
   });
-  
-  // when a scan discovers a device, check if its MAC is what was supplied 
+
+  // when a scan discovers a device, check if its MAC is what was supplied
   function discoverDevice(peripheral) {
     //console.log('discovered device: ' + peripheralToString(peripheral));
     if (peripheral.id == self.targetMAC) {
       noble.stopScanning();
-      console.log('found requested peripheral: ' + peripheralToString(peripheral)); 
+      console.log('found requested peripheral: ' + peripheralToString(peripheral));
       self.targetDevice = peripheral;
       self.targetDevice.once('disconnect', function() {
         console.log('disconnected from ' + peripheralToString(peripheral));
-        if (!self.targetIsApp) process.exit(); 
+        if (!self.targetIsApp) process.exit();
         else noble.startScanning([], true);
       });
       dfuStart();
@@ -102,7 +107,7 @@ function Updater(mac, fname) {
           function(callback) {
             self.ctrlptChar.write(Buffer([0x02, 0x00]), false, function(err) {
               console.log('Init DFU Parameters');
-              callback(err, 1); 
+              callback(err, 1);
             });
           },
           // Send Init Packet
@@ -116,12 +121,12 @@ function Updater(mac, fname) {
           function(callback) {
             self.ctrlptChar.write(Buffer([0x02, 0x01]), false, function(err) {
               console.log('Finish DFU Parameters');
-              callback(err, 1); 
+              callback(err, 1);
             });
           }],
           function(err, results) {
             if (err) throw err;
-      }); 
+      });
       break;
     case 2:
       // Send FW Image (write 0x03 to DFU Control Point)
@@ -146,7 +151,7 @@ function Updater(mac, fname) {
           },
           function(callback1) {
             var end = i+(ATT_MTU-3);
-            if (end > self.fileBuffer.length) end = self.fileBuffer.length; 
+            if (end > self.fileBuffer.length) end = self.fileBuffer.length;
             self.pktChar.write(self.fileBuffer.slice(i, end), false, function(err) {
               if (i/(ATT_MTU-3) % 10 == 0) {
                 self.progressBar.tick(10);
@@ -164,17 +169,17 @@ function Updater(mac, fname) {
       });
       break;
     case 3:
-      // Validate FW image 
+      // Validate FW image
       self.ctrlptChar.write(Buffer([0x04]), false, function(err) {
         console.log('Validate image');
       });
-      break; 
+      break;
     case 4:
-      // Activate Image and reset 
+      // Activate Image and reset
       self.ctrlptChar.write(Buffer([0x05]), false, function(err) {
         console.log('Activate image');
       });
-      break; 
+      break;
     default:
       console.log('got unexpected reqopcode ' + data[1]);
       process.exit();
@@ -204,7 +209,7 @@ function Updater(mac, fname) {
       {
         self.ctrlptChar = chars[0];
         self.ctrlptChar.notify(true);
-        self.ctrlptChar.on('data', ctrlNotify); 
+        self.ctrlptChar.on('data', ctrlNotify);
         callback(err, 1);
       });
     },
@@ -226,7 +231,7 @@ function Updater(mac, fname) {
     },
     // Start DFU (write 0x01 to DFU Control Point)
     function(callback) {
-      // TODO 0x04 should be optional 
+      // TODO 0x04 should be optional
       self.ctrlptChar.write(new Buffer([0x01, 0x04]), false, function(err) {
         if (self.targetIsApp) console.log("Resetting Target to Bootloader");
         else console.log("Starting DFU");
@@ -243,7 +248,7 @@ function Updater(mac, fname) {
       sizeBuf[9] = binary.hiUint16(binary.loUint32(self.fileBuffer.length));
       sizeBuf[10] = binary.loUint16(binary.hiUint32(self.fileBuffer.length));
       sizeBuf[11] = binary.hiUint16(binary.hiUint32(self.fileBuffer.length));
-      
+
       self.pktChar.write(sizeBuf, false, function(err) {
         console.log('Send img size');
         callback(err, 5);
@@ -251,16 +256,16 @@ function Updater(mac, fname) {
     }],
     function(err, results) {
       if (err) throw err;
-    }); 
+    });
   }
-  
+
   function initPacket(data) {
     // calculate CRC:
-    var crc = crc16(data); 
+    var crc = crc16(data);
     console.log('image size ' + self.fileBuffer.length);
-    console.log('calculated crc of firmware: 0x' + crc.toString(16)); 
+    console.log('calculated crc of firmware: 0x' + crc.toString(16));
     var packet = new Buffer(14);
-    
+
     // TODO change to be an option
     // Device Type:
     packet[0]   = 0xFF;
@@ -283,7 +288,7 @@ function Updater(mac, fname) {
     packet[12]  = binary.loUint16(crc);
     packet[13]  = binary.hiUint16(crc);
 
-    return packet; 
+    return packet;
   }
 
   function crc16(data, start) {
@@ -295,9 +300,9 @@ function Updater(mac, fname) {
       crc ^= (crc << 8) << 4;
       crc ^= ((crc & 0xFF) << 4) << 1;
     }
-    
+
     return crc & 0xFFFF;
-  } 
+  }
 }
 
 function peripheralToString(peripheral) {
@@ -306,7 +311,7 @@ function peripheralToString(peripheral) {
 }
 
 function printHelp() {
-  console.log('-b provides device address in the form XX:XX:XX:XX:XX:XX:XX');
+  console.log('-b provides device address in the form XX:XX:XX:XX:XX:XX');
   console.log('-f provides a required filename for firmware *.bin\n');
   process.exit();
 };
