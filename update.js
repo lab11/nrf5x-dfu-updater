@@ -1,31 +1,33 @@
-var noble = require('noble');
+var noble = null;//require('noble');
 var argv = require('minimist')(process.argv.slice(2));
 var fs = require('fs');
 var async = require('async');
 var progress = require('progress');
-var binary = require('./binary.js')
+var binary = require('./binary.js');
+var cproc = require('child_process');
 
 var DFU_SERVICE     = '000015301212efde1523785feabcd123' 
 var DFU_CTRLPT_CHAR   = '000015311212efde1523785feabcd123' 
 var DFU_PKT_CHAR = '000015321212efde1523785feabcd123' 
 var ATT_MTU = 23;
 
-if (!argv.f || !argv.b) {
+if (!argv.f || !argv.a) {
   printHelp();
 }
-var mac = argv.b.match(/[0-9a-fA-F][^:]/g).join('').toLowerCase();
+var mac = argv.a.match(/[0-9a-fA-F][^:]/g).join('').toLowerCase();
 if (mac.length != 12) {
   console.log('invalid ble address');
   printHelp();
 }
 
 // Updater handles the actual upload
-var updater = new Updater(mac, argv.f);
+var updater = new Updater(mac, argv.f, argv.l);
 
-function Updater(mac, fname) {
+function Updater(mac, fname, adv) {
 
   var self = this;
   
+  this.advertise = adv; 
   this.fileBuffer = null;
   this.targetMAC = mac;
   this.targetDevice = null;
@@ -45,7 +47,20 @@ function Updater(mac, fname) {
       });
     },
     function(callback) {
+      if (self.advertise) {
+        child = cproc.fork('advertise.js', ['-a ' + self.targetMAC]);
+        child.on('close', function() {
+          console.log('done advertising');
+          callback(null, 1); 
+        });
+      } else {
+        callback(null, 1);
+      }
+    },
+    function(callback) {
       // start scanning BLE devices
+      // noble is required here to avoid collision with bleno in the other app
+      noble = require('noble');
       noble.on('stateChange', function(state) {
         if (state === 'poweredOn') {
           console.log('starting scan...');
@@ -194,8 +209,13 @@ function Updater(mac, fname) {
     // Get DFU Service
     function(callback) {
       self.targetDevice.discoverServices([DFU_SERVICE], function(err, services) {
-        self.dfuServ = services[0];
-        callback(err, 1);
+        if (services[0]) {
+          self.dfuServ = services[0];
+          callback(err, 1);
+        } else {
+          console.log('device does not support DFU, service not present');
+          process.exit();
+        }
       });
     },
     // Get DFU ctrl Characteristic
@@ -308,6 +328,7 @@ function peripheralToString(peripheral) {
 
 function printHelp() {
   console.log('-a provides device address in the form XX:XX:XX:XX:XX:XX');
-  console.log('-f provides a required filename for firmware *.bin\n');
+  console.log('-f provides a required filename for firmware *.bin');
+  console.log('-l indicates we need to advertise to a listening s130 device');
   process.exit();
 };
