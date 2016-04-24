@@ -48,7 +48,7 @@ function Updater(mac, fname, adv) {
     },
     function(callback) {
       if (self.advertise) {
-        child = cproc.fork('advertise.js', ['-a ' + self.targetMAC]);
+        child = cproc.fork('advertise.js', ['-a' + self.targetMAC]);
         child.on('close', function() {
           console.log('done advertising');
           callback(null, 1); 
