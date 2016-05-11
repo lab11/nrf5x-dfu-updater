@@ -1,29 +1,119 @@
 #!/usr/bin/env node
 
 var noble    = null;//require('noble');
-var argv     = require('minimist')(process.argv.slice(2));
+// var argv     = require('minimist')(process.argv.slice(2));
 var fs       = require('fs');
 var async    = require('async');
 var progress = require('progress');
 var binary   = require('./binary.js');
 var cproc    = require('child_process');
+var readline = require('readline');
+var argv     = require('yargs')
+               .demand('f')
+               .alias('f', 'file')
+               .describe('f', 'path to firmware *.bin')
+               .alias('a', 'address')
+               .describe('a', 'address of node to reprogram in XX:XX:XX:XX:XX:XX format')
+               .boolean('l')
+               .alias('l', 'advertise')
+               .describe('l', 'reprogram a master node (aka send an advertisement)')
+               .describe('addresses', 'path to a file of node addresses to reprogram')
+               .help('h')
+               .alias('h', 'help')
+               .argv
 
 var DFU_SERVICE     = '000015301212efde1523785feabcd123'
 var DFU_CTRLPT_CHAR = '000015311212efde1523785feabcd123'
 var DFU_PKT_CHAR    = '000015321212efde1523785feabcd123'
 var ATT_MTU         = 23;
 
-if (!argv.f || !argv.a) {
-  printHelp();
-}
-var mac = argv.a.match(/[0-9a-fA-F][^:]/g).join('').toLowerCase();
-if (mac.length != 12) {
-  console.log('invalid ble address');
-  printHelp();
+
+function validate_mac (mac) {
+  try {
+    var m = mac.match(/[0-9a-fA-F][^:]/g).join('').toLowerCase();
+    if (m.length != 12) {
+      return undefined;
+    }
+  } catch (e) {
+    return undefined;
+  }
+
+  return m;
 }
 
-// Updater handles the actual upload
-var updater = new Updater(mac, argv.f, argv.l);
+// Check that -f was passed a bin file
+var extension = argv.f.slice(argv.f.length-3, argv.length);
+if (extension != 'bin') {
+  console.log('Firmware must be in .bin format.');
+  process.exit(1);
+}
+
+// Decide if we should reprogram a single device or a list of devices
+if (argv.a != undefined) {
+  // Look for a single device
+  var mac = validate_mac(argv.a);
+  if (mac === undefined) {
+    console.log(argv.a + ' is not a valid address');
+    process.exit(1);
+  }
+
+  // Updater handles the actual upload
+  var updater = new Updater(mac, argv.f, argv.l);
+
+
+} else {
+  // Go through a file of nodes to update
+
+  var lines = fs.readFileSync(argv.addresses).toString().split("\n");
+  for (var i=0; i<lines.length; i++) {
+    var line = lines[i];
+
+    var mac = validate_mac(line);
+    if (mac != undefined) {
+      console.log(mac)
+
+      var updater = new Updater(mac, argv.f, argv.l);
+    } else {
+      console.log(line + ' is not a valid address.');
+    }
+  }
+  // .forEach(function(line, index, arr) {
+  //   if (index === arr.length - 1 && line === "") { return; }
+
+  //   var mac = validate_mac(line);
+  //   if (mac != undefined) {
+  //     console.log(mac)
+
+  //     var updater = new Updater(mac, argv.f, argv.l);
+  //   } else {
+  //     console.log(line + ' is not a valid address.');
+  //   }
+
+  // });
+
+  // var addr_file = readline.createInterface({
+  //   input: fs.createReadStream(argv.addresses)
+  // });
+
+  // addr_file.on('line', function (line) {
+  //   if (line === '') return;
+
+  //   var mac = validate_mac(line);
+  //   if (mac != undefined) {
+  //     console.log(mac)
+
+  //     var updater = new Updater(mac, argv.f, argv.l);
+  //   } else {
+  //     console.log(line + ' is not a valid address.');
+  //   }
+  // });
+
+}
+
+
+
+
+
 
 function Updater(mac, fname, adv) {
 
@@ -50,7 +140,7 @@ function Updater(mac, fname, adv) {
     },
     function(callback) {
       if (self.advertise) {
-        child = cproc.fork('advertise.js', ['-a' + self.targetMAC]);
+        child = cproc.fork('advertise.js', ['-a ' + self.targetMAC]);
         child.on('close', function() {
           console.log('done advertising');
           callback(null, 1);
@@ -327,10 +417,3 @@ function peripheralToString(peripheral) {
   return peripheral.id.match(/../g).join(':') + ' '
     + peripheral.advertisement.localName;
 }
-
-function printHelp() {
-  console.log('-a provides device address in the form XX:XX:XX:XX:XX:XX');
-  console.log('-f provides a required filename for firmware *.bin');
-  console.log('-l indicates we need to advertise to a listening s130 device');
-  process.exit();
-};
