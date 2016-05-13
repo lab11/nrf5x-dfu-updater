@@ -65,18 +65,40 @@ if (argv.a != undefined) {
   // Go through a file of nodes to update
 
   var lines = fs.readFileSync(argv.addresses).toString().split("\n");
-  for (var i=0; i<lines.length; i++) {
-    var line = lines[i];
 
+  var ops = [];
+
+  var run_all_addrs = function () {
+    async.series(ops, function () {
+      process.exit(0);
+    });
+  }
+
+  var process_addr_line = function (line, cb) {
     var mac = validate_mac(line);
     if (mac != undefined) {
       console.log(mac)
 
-      var updater = new Updater(mac, argv.f, argv.l);
+      ops.push(function (callback) {
+        var updater = new Updater(mac, argv.f, argv.l, callback);
+      });
+
+
+
     } else {
       console.log(line + ' is not a valid address.');
+
     }
+    cb();
   }
+
+  async.each(lines, process_addr_line, run_all_addrs);
+
+
+
+
+
+
   // .forEach(function(line, index, arr) {
   //   if (index === arr.length - 1 && line === "") { return; }
 
@@ -115,7 +137,7 @@ if (argv.a != undefined) {
 
 
 
-function Updater(mac, fname, adv) {
+function Updater(mac, fname, adv, done_cb) {
 
   var self = this;
 
@@ -128,6 +150,8 @@ function Updater(mac, fname, adv) {
   this.ctrlptChar = null;
   this.pktChar = null;
   this.progressBar = null;
+
+  console.log('Trying to reprogram ' + mac);
 
   async.series([
     // read firmware bin file and prepare related parameters
@@ -153,15 +177,21 @@ function Updater(mac, fname, adv) {
       // start scanning BLE devices
       // noble is required here to avoid collision with bleno in the other app
       noble = require('noble');
-      noble.on('stateChange', function(state) {
-        if (state === 'poweredOn') {
-          console.log('starting scan...');
-          noble.startScanning([], true);
-        } else {
-          noble.stopScanning();
-        }
+
+      try {
+        noble.startScanning([], true);
         callback(null, 2);
-      });
+      } catch (e) {
+        noble.on('stateChange', function(state) {
+          if (state === 'poweredOn') {
+            console.log('starting scan...');
+            noble.startScanning([], true);
+          } else {
+            noble.stopScanning();
+          }
+          callback(null, 2);
+        });
+      }
     },
     function(callback) {
       // when we discover devices
@@ -182,8 +212,15 @@ function Updater(mac, fname, adv) {
       self.targetDevice = peripheral;
       self.targetDevice.once('disconnect', function() {
         console.log('disconnected from ' + peripheralToString(peripheral));
-        if (!self.targetIsApp) process.exit();
-        else noble.startScanning([], true);
+        if (!self.targetIsApp) {
+          if (done_cb !== undefined) {
+            done_cb();
+          } else {
+            process.exit();
+          }
+        } else {
+          noble.startScanning([], true);
+        }
       });
       dfuStart();
     }
