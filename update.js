@@ -226,7 +226,7 @@ function Updater(mac, fname, adv, done_cb) {
     }
   }
 
-  function ctrlNotify(data, isNotify) {
+  function ctrlResponse(data, isNotify) {
     if(data.length !== 3) {
       console.log("Bad length from target: " + data.length);
       return;
@@ -245,7 +245,7 @@ function Updater(mac, fname, adv, done_cb) {
         async.series([
           // Initialize DFU Parameters (write 0x02 to DFU Control Point)
           function(callback) {
-            self.ctrlptChar.write(Buffer([0x02, 0x00]), false, function(err) {
+            self.ctrlptChar.write(Buffer.from([0x02, 0x00]), false, function(err) {
               console.log('Init DFU Parameters');
               callback(err, 1);
             });
@@ -259,7 +259,7 @@ function Updater(mac, fname, adv, done_cb) {
           },
           // Initialize DFU Parameters (write 0x02 to DFU Control Point)
           function(callback) {
-            self.ctrlptChar.write(Buffer([0x02, 0x01]), false, function(err) {
+            self.ctrlptChar.write(Buffer.from([0x02, 0x01]), false, function(err) {
               console.log('Finish DFU Parameters');
               callback(err, 1);
             });
@@ -272,7 +272,7 @@ function Updater(mac, fname, adv, done_cb) {
       // Send FW Image (write 0x03 to DFU Control Point)
       async.series([
       function(callback) {
-        self.ctrlptChar.write(Buffer([0x03]), false, function(err) {
+        self.ctrlptChar.write(Buffer.from([0x03]), false, function(err) {
           callback(err, 1);
         });
       },
@@ -310,13 +310,13 @@ function Updater(mac, fname, adv, done_cb) {
       break;
     case 3:
       // Validate FW image
-      self.ctrlptChar.write(Buffer([0x04]), false, function(err) {
+      self.ctrlptChar.write(Buffer.from([0x04]), false, function(err) {
         console.log('Validate image');
       });
       break;
     case 4:
       // Activate Image and reset
-      self.ctrlptChar.write(Buffer([0x05]), false, function(err) {
+      self.ctrlptChar.write(Buffer.from([0x05]), false, function(err) {
         console.log('Activate image');
       });
       break;
@@ -354,7 +354,7 @@ function Updater(mac, fname, adv, done_cb) {
       {
         self.ctrlptChar = chars[0];
         self.ctrlptChar.notify(true);
-        self.ctrlptChar.on('data', ctrlNotify);
+        self.ctrlptChar.on('data', ctrlResponse);
         callback(err, 1);
       });
     },
@@ -377,7 +377,7 @@ function Updater(mac, fname, adv, done_cb) {
     // Start DFU (write 0x01 to DFU Control Point)
     function(callback) {
       // TODO 0x04 should be optional
-      self.ctrlptChar.write(new Buffer([0x01, 0x04]), false, function(err) {
+      self.ctrlptChar.write(new Buffer.from([0x01, 0x04]), false, function(err) {
         if (self.targetIsApp) console.log("Resetting Target to Bootloader");
         else console.log("Starting DFU");
         callback(err, 1);
@@ -386,7 +386,7 @@ function Updater(mac, fname, adv, done_cb) {
     // Send image size
     function(callback) {
       if (self.targetIsApp) return callback();
-      var sizeBuf = new Buffer(12);
+      var sizeBuf = new Buffer.alloc(12);
       sizeBuf.fill(0);
       // TODO allow softdevice and bootloader, maybe do this when fileBuffer filled
       sizeBuf[8] = binary.loUint16(binary.loUint32(self.fileBuffer.length));
@@ -409,7 +409,7 @@ function Updater(mac, fname, adv, done_cb) {
     var crc = crc16(data);
     console.log('image size ' + self.fileBuffer.length);
     console.log('calculated crc of firmware: 0x' + crc.toString(16));
-    var packet = new Buffer(14);
+    var packet = new Buffer.alloc(14);
 
     // TODO change to be an option
     // Device Type:
