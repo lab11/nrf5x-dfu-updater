@@ -1,4 +1,4 @@
-nRF51x Firmware Uploader
+nRF5x Firmware Uploader
 ========================
 
 This tool uses BLE to wirelessly reprogram nRF5x based devices.
