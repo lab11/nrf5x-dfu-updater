@@ -1,7 +1,7 @@
 {
-  "name": "nrf51x-dfu-updater",
+  "name": "nrf5x-dfu-updater",
   "version": "1.0.0",
-  "description": "Nodejs nrf51x BLE DFU updater",
+  "description": "Nodejs nrf5x BLE DFU updater",
   "main": "updater.js",
   "dependencies": {
     "async": "^1.5.2",
@@ -17,15 +17,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lab11/nrf51x-dfu-updater.git"
+    "url": "git+https://github.com/lab11/nrf5x-dfu-updater.git"
   },
   "author": "Neal Jackson",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/lab11/nrf51x-dfu-updater/issues"
+    "url": "https://github.com/lab11/nrf5x-dfu-updater/issues"
   },
-  "homepage": "https://github.com/lab11/nrf51x-dfu-updater#readme",
+  "homepage": "https://github.com/lab11/nrf5x-dfu-updater#readme",
   "bin": {
-    "nrf51x-dfu-updater": "update.js"
+    "nrf5x-dfu-updater": "update.js"
   }
 }
