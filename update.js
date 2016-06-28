@@ -8,6 +8,7 @@ var progress = require('progress');
 var binary   = require('./binary.js');
 var cproc    = require('child_process');
 var readline = require('readline');
+var crypto   = require('crypto');
 var argv     = require('yargs')
                .demand('f')
                .alias('f', 'file')
@@ -17,16 +18,18 @@ var argv     = require('yargs')
                .boolean('l')
                .alias('l', 'advertise')
                .describe('l', 'reprogram a master node (aka send an advertisement)')
+               .alias('k', 'key')
+               .describe('k', 'symmetric key file for device')
                .describe('addresses', 'path to a file of node addresses to reprogram')
                .help('h')
                .alias('h', 'help')
                .argv
 
-var DFU_SERVICE     = '000015301212efde1523785feabcd123'
-var DFU_CTRLPT_CHAR = '000015311212efde1523785feabcd123'
-var DFU_PKT_CHAR    = '000015321212efde1523785feabcd123'
-var ATT_MTU         = 23;
-
+var DFU_SERVICE         = '000015301212efde1523785feabcd123'
+var DFU_CTRLPT_CHAR     = '000015311212efde1523785feabcd123'
+var DFU_PKT_CHAR        = '000015321212efde1523785feabcd123'
+var ATT_MTU             = 23;
+var DFU_SESSION_ID_SIZE = 4
 
 function validate_mac (mac) {
   try {
@@ -58,7 +61,7 @@ if (argv.a != undefined) {
   }
 
   // Updater handles the actual upload
-  var updater = new Updater(mac, argv.f, argv.l);
+  var updater = new Updater(mac, argv.f, argv.l, argv.k);
 
 
 } else {
@@ -80,7 +83,7 @@ if (argv.a != undefined) {
       console.log(mac)
 
       ops.push(function (callback) {
-        var updater = new Updater(mac, argv.f, argv.l, callback);
+        var updater = new Updater(mac, argv.f, argv.l, argv.k, callback);
       });
 
 
@@ -137,11 +140,14 @@ if (argv.a != undefined) {
 
 
 
-function Updater(mac, fname, adv, done_cb) {
+function Updater(mac, fname, adv, keyfile, done_cb) {
 
   var self = this;
 
   this.advertise = adv;
+  this.keyfile = keyfile;
+  this.key = null;
+  this.digest = null;
   this.fileBuffer = null;
   this.targetMAC = mac;
   this.targetDevice = null;
@@ -227,20 +233,57 @@ function Updater(mac, fname, adv, done_cb) {
   }
 
   function ctrlResponse(data, isNotify) {
-    if(data.length !== 3) {
-      console.log("Bad length from target: " + data.length);
-      return;
-    }
     if(data[0] !== 16) {
       console.log("Bad opcode from target: 0x" + data[0].toString(16));
       return;
     }
-    if(data[2] !== 1) {
-      console.log("Bad respvalue from target: 0x" + data[2].toString(16));
-      return;
-    }
     // Got a good response, now finish DFU process
     switch(data[1]) {
+      case 9:
+        // Respond to authentication request with signature
+        async.series ([
+          function(callback) {
+            if (keyfile) {
+              fs.readFile(self.keyfile, 'ascii', function(err, keystring) {
+                // read in key as little-endian string
+                self.key = Buffer.from(keystring.replace(/\n$/, '').match(/.{2}/g).reverse().join(""), 'hex');
+                callback(err, 1);
+              });
+            }
+            else {
+              console.log('Target expects a session handshake. Provide a symmetric key file with the -k option.');
+              process.exit(1);
+            }
+          },
+          function(callback) {
+            console.log('Calculating Signature of Session ID');
+            hmac = crypto.createHmac('sha256', self.key);
+            hmac.update(data.slice(2,2+DFU_SESSION_ID_SIZE));
+            self.digest = hmac.digest();
+            self.ctrlptChar.write(self.digest.slice(0, 20), false, function(err) {
+              callback(err, 1);
+            });
+          },
+          function(callback) {
+            self.ctrlptChar.write(self.digest.slice(20), false, function(err) {
+              console.log('Sent Signature');
+              callback(err, 1);
+            });
+          }],
+          function(err, results) {
+            if (err) throw err;
+        });
+        break;
+      case 10:
+        // Valid/Invalid Signature Response from target
+        if (data[2] == 0x01) {
+          console.log('Signature Success!');
+        }
+        else {
+          console.log('Signature Failure');
+          process.exit(1);
+        }
+        break;
       case 1:
         async.series([
           // Initialize DFU Parameters (write 0x02 to DFU Control Point)
