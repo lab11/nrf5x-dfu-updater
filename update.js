@@ -29,6 +29,7 @@ var DFU_SERVICE         = '000015301212efde1523785feabcd123'
 var DFU_CTRLPT_CHAR     = '000015311212efde1523785feabcd123'
 var DFU_PKT_CHAR        = '000015321212efde1523785feabcd123'
 var ATT_MTU             = 23;
+var SHA256_DIGEST_SIZE  = 32;
 var DFU_SESSION_ID_SIZE = 4
 
 function validate_mac (mac) {
@@ -233,7 +234,8 @@ function Updater(mac, fname, adv, keyfile, done_cb) {
   }
 
   function ctrlResponse(data, isNotify) {
-    if(data[0] !== 16) {
+    console.log(data)
+    if(data[0] !== 0x10) {
       console.log("Bad opcode from target: 0x" + data[0].toString(16));
       return;
     }
@@ -243,7 +245,7 @@ function Updater(mac, fname, adv, keyfile, done_cb) {
         // Respond to authentication request with signature
         async.series ([
           function(callback) {
-            if (keyfile) {
+            if (self.keyfile) {
               fs.readFile(self.keyfile, 'ascii', function(err, keystring) {
                 // read in key as little-endian string
                 self.key = Buffer.from(keystring.replace(/\n$/, '').match(/.{2}/g).reverse().join(""), 'hex');
@@ -260,12 +262,7 @@ function Updater(mac, fname, adv, keyfile, done_cb) {
             hmac = crypto.createHmac('sha256', self.key);
             hmac.update(data.slice(2,2+DFU_SESSION_ID_SIZE));
             self.digest = hmac.digest();
-            self.ctrlptChar.write(self.digest.slice(0, 20), false, function(err) {
-              callback(err, 1);
-            });
-          },
-          function(callback) {
-            self.ctrlptChar.write(self.digest.slice(20), false, function(err) {
+            sendBuffer(self.digest, self.ctrlptChar, function(err) {
               console.log('Sent Signature');
               callback(err, 1);
             });
@@ -295,7 +292,7 @@ function Updater(mac, fname, adv, keyfile, done_cb) {
           },
           // Send Init Packet
           function(callback) {
-            self.pktChar.write(self.initPkt, false, function(err) {
+            sendBuffer(self.initPkt, self.pktChar, function(err) {
               console.log('Sent DFU Parameters');
               callback(err, 1);
             });
@@ -448,11 +445,9 @@ function Updater(mac, fname, adv, keyfile, done_cb) {
   }
 
   function initPacket(data) {
-    // calculate CRC:
-    var crc = crc16(data);
+    
     console.log('image size ' + self.fileBuffer.length);
-    console.log('calculated crc of firmware: 0x' + crc.toString(16));
-    var packet = new Buffer.alloc(14);
+    var packet = new Buffer.alloc(80);
 
     // TODO change to be an option
     // Device Type:
@@ -469,13 +464,28 @@ function Updater(mac, fname, adv, keyfile, done_cb) {
     // Softdevice array length:
     packet[8]   = binary.loUint16(0x1);
     packet[9]   = binary.hiUint16(0x1);
-    // Softdevice[1]:
+    // Softdevice[0]:
     packet[10]  = binary.loUint16(0xFFFE);
     packet[11]  = binary.hiUint16(0xFFFE);
-    // CRC16:
-    packet[12]  = binary.loUint16(crc);
-    packet[13]  = binary.hiUint16(crc);
-
+    
+    if (self.keyfile) {
+      init_hmac = crypto.createHmac('sha256', self.key);
+      init_hmac.update(packet.slice(0,12));
+      var digest = init_hmac.digest();
+      digest.copy(packet, 12);
+      data_hmac = crypto.createHmac('sha256', self.key);
+      data_hmac.update(data);
+      digest = init_hmac.digest();
+      digest.copy(packet, 12+SHA256_DIGEST_SIZE);
+    } else {
+      // calculate CRC:
+      var crc = crc16(data);
+      console.log('calculated crc of firmware: 0x' + crc.toString(16));
+      // CRC16:
+      packet[12]  = binary.loUint16(crc);
+      packet[13]  = binary.hiUint16(crc);
+      packet = packet.slice(0, 14)
+    }
     return packet;
   }
 
@@ -490,6 +500,25 @@ function Updater(mac, fname, adv, keyfile, done_cb) {
     }
 
     return crc & 0xFFFF;
+  }
+
+  function sendBuffer(buf, characteristic, callback) {
+    var i = 0;
+    async.whilst(
+      function(){
+        return i < buf.length;
+      },
+      function(write_cb) {
+        var end = i+(ATT_MTU-3);
+        if (end > buf.length) end = buf.length;
+        characteristic.write(buf.slice(i, end), false, function(err) {
+          i = end;
+          write_cb(err, i);
+        });
+      },
+      function(err, i) {
+        callback(err);
+      });
   }
 }
 
